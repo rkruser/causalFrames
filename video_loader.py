@@ -348,10 +348,13 @@ class VideoDataset(Dataset):
   def numVideos(self):
     return len(self.cumulFrames)-1
 
+  def videoPrefix(self, number):
+    return self.metadata[number][0]
+
   def getVideo(self, number):
     startindex = self.cumulFrames[number]
     endindex = self.cumulFrames[number+1]
-    return self.allframes[startindex:endindex]
+    return self.allframes[startindex:endindex], self.alllabels[startindex:endindex]
 
 
 
