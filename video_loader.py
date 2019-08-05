@@ -155,7 +155,29 @@ trainvids = [
     'v16_6.mp4',
     'v16_7.mp4',
     'v16_9.mp4',
-    'v16_10.mp4'
+    'v16_10.mp4',
+    'v17.mp4', #Beginning of multicar
+    'v18_1.mp4',
+    'v19.mp4',
+    'v20.mp4',
+    'v22.mp4',
+    'v23.mp4',
+    'v25.mp4',
+    'v26.mp4',
+    'v28.mp4',
+    'v29.mp4',
+    'v31.mp4',
+    'v32.mp4',
+    'v34.mp4',
+    'v35.mp4',
+    'v37.mp4',
+    'v38.mp4',
+    'v40.mp4',
+    'v41.mp4',
+    'v43.mp4',
+    'v44.mp4',
+    'v46.mp4',
+    'v47.mp4'
 ]
 
 testvids = [
@@ -187,7 +209,18 @@ testvids = [
     'v16_8.mp4',
     'v15_6.mp4',
     'v2_8.mp4',
-    'v2_10.mp4'
+    'v2_10.mp4',
+    'v18_2.mp4', #Beginning of multicar
+    'v21.mp4',
+    'v24.mp4',
+    'v27.mp4',
+    'v30.mp4',
+    'v33.mp4',
+    'v36.mp4',
+    'v39.mp4',
+    'v42.mp4',
+    'v45.mp4',
+    'v48.mp4'
 ]
 
 
@@ -199,12 +232,12 @@ class VideoDataset(Dataset):
         cropsize=768,
         resize=224, 
         windowsize=1, 
-        chopoff=6, 
+       # chopoff=6, 
         load_from_tensorfile=False,
         tensorfile_prefix='allframes', 
         save_to_tensorfile=True):
     super(VideoDataset, self).__init__()
-    self.chopoff=chopoff # How many seconds to chop off front of each
+    #self.chopoff=chopoff # How many seconds to chop off front of each
     self.windowsize=windowsize # How 
     self.cropsize=cropsize
     self.resize=resize
@@ -247,7 +280,7 @@ class VideoDataset(Dataset):
       nameMap = {}
       for s in allLabels:
         s = s.split()
-        nameMap[s[0]] = float(s[1])
+        nameMap[s[0]] = (float(s[1]), float(s[2]))
 
       for ind, vid in enumerate(self.names):
         fullpath = os.path.join(self.path,vid)
@@ -260,18 +293,18 @@ class VideoDataset(Dataset):
 
         nframes = video.get(cv2.CAP_PROP_FRAME_COUNT)
         fps = video.get(cv2.CAP_PROP_FPS)
-        toChop = round(self.chopoff*fps)
-
-        if toChop >= nframes:
-            print("Skipping {} because too short".format(vid))
-            continue
         
         #vidinfo = allLabels[ind].split() # Problems here
         #assert(vidinfo[0] == os.path.splitext(vid)[0])
         #crashtime = float(vidinfo[1])
         
         vidPrefix = os.path.splitext(vid)[0]
-        crashtime = nameMap[vidPrefix] # Map file name to crash cutoff time
+        chopoff = nameMap[vidPrefix][0]
+        toChop = round(chopoff*fps)
+        if toChop >= nframes:
+            print("Skipping {} because too short".format(vid))
+            continue
+        crashtime = nameMap[vidPrefix][1] # Map file name to crash cutoff time
         crashframe = round(crashtime*fps)
 
         frames = []
@@ -356,19 +389,32 @@ class VideoDataset(Dataset):
     endindex = self.cumulFrames[number+1]
     return self.allframes[startindex:endindex], self.alllabels[startindex:endindex]
 
+  def getSmearedVideo(self, number):
+    startindex = self.cumulEffectiveFrames[number]
+    endindex = self.cumulEffectiveFrames[number+1]
+    fms = []
+    fmlabels = []
+    for i in range(startindex, endindex):
+        ims, label = self.__getitem__(i)
+        fms.append(ims)
+        fmlabels.append(label)
+    return torch.stack(fms), torch.Tensor(fmlabels)
+
+
+
 
 
     # Use place to jump back to framesPerVid
 
 
 if __name__ == '__main__':
-    traindata = VideoDataset(load_from_tensorfile=True, 
+    traindata = VideoDataset(load_from_tensorfile=False, 
         windowsize=2, 
         save_to_tensorfile=True, 
         tensorfile_prefix='allframes_224_train',
         names=trainvids)
     print(len(traindata))
-    testdata = VideoDataset(load_from_tensorfile=True,
+    testdata = VideoDataset(load_from_tensorfile=False,
         windowsize=2,
         save_to_tensorfile=True,
         tensorfile_prefix='allframes_224_test',
