@@ -63,7 +63,7 @@ class AverageMeter(object):
         self.count = 0
         self.value = 0
             
-def train(nepochs, outname='resnet_trained/beamng_model_resnet.pth', windowsize=1, cont=False):
+def train(nepochs, outname='resnet_trained/beamng_model_resnet.pth', tensorfile_prefix='allframes_224_train', windowsize=1, cont=False):
          #keepEvery=5, nhidden=64):
 #    model = models.resnet18(pretrained=False, num_classes=1)
     model = resnet18_flexible(num_classes=1, data_channels=3*windowsize)
@@ -71,7 +71,7 @@ def train(nepochs, outname='resnet_trained/beamng_model_resnet.pth', windowsize=
     traindata = VideoDataset(load_from_tensorfile=True, 
         windowsize=windowsize, 
         save_to_tensorfile=False, 
-        tensorfile_prefix='allframes_224_train')
+        tensorfile_prefix=tensorfile_prefix)
 
     #print(len(traindata))
     # testdata = VideoDataset(load_from_tensorfile=True,
@@ -152,17 +152,24 @@ def runHugeGradients(model, data, maxbatchsize=128, device='cuda:0'):
     for i in range(nchunks):
         #devChunk = chunks[i].to(device)
         devChunk = chunks[i]
+        devChunk = torch.cat((devChunk, devChunk+0.1*torch.randn(50,3,224,224,device=device))) # Random noise for smoothgrad
+
+
         devChunk.requires_grad_()
-        out = model(devChunk)
+        out = model(devChunk).squeeze()
         #model.zero_grad()
         #out.squeeze().backward()
-        g = torch.autograd.grad(out.squeeze(), devChunk)[0].to('cpu')
+        #g = torch.cat(torch.autograd.grad(torch.chunk(out,len(out)), torch.chunk(devChunk,len(devChunk)))).to('cpu') # cat instead of [0]
+       	g = torch.autograd.grad(torch.chunk(out,len(out)), devChunk)
+       	g = torch.cat(g)
+
+        g = g.mean(0).unsqueeze(0).to('cpu')
         #g = devChunk.grad.to('cpu')
         grads.append(g)
-        outputs.append(out.to('cpu'))
+        outputs.append(out[0].to('cpu')) #Prediction for first image
 
 
-    return torch.cat(outputs).detach().sigmoid().numpy(), torch.cat(grads)
+    return torch.stack(outputs).detach().sigmoid().numpy(), torch.cat(grads)
   
     
 def write_gif(vid, fname, special_frame=None):
@@ -177,7 +184,10 @@ def write_gif(vid, fname, special_frame=None):
     #write_gif(pts*255, fname, fps=6)
     imageio.mimsave(fname,vid,fps=5)
 
-
+def zero_below(g, pctile):
+	for i in range(len(g)):
+		pc = np.percentile(g[i],pctile)
+		g[i][g[i]<pc] = 0
 
 def test(modelname='resnet_trained/beamng_model_resnet.pth', windowsize=1,
      write_gifs=False, write_graphs=False, tensorfile_prefix='allframes_224_test'):
@@ -207,11 +217,12 @@ def test(modelname='resnet_trained/beamng_model_resnet.pth', windowsize=1,
         outputs, grads = runHugeGradients(testmodel, vid)
         grads = grads.abs().max(1)[0].unsqueeze(1) # Take the maximum gradient of each pixel
         grads = (grads-grads.min())/(grads.max()-grads.min())
-        pctile = np.percentile(grads,90)
-        grads[grads<pctile] = 0
+        #pctile = np.percentile(grads,95)
+        #grads[grads<pctile] = 0
+        zero_below(grads,95)
         grads = torch.cat([grads, grads, grads], 1) # Make black and white in rgb for gif
 
-        vid = vid+5*grads
+        vid = vid+2*grads
         vid = (vid-vid.min())/(vid.max()-vid.min())
 
         outputs = outputs.squeeze()
@@ -233,6 +244,7 @@ def test(modelname='resnet_trained/beamng_model_resnet.pth', windowsize=1,
 
         if write_gifs:
             write_gif(vid, vidPrefix+'_grad.gif', special_frame=special_frame)
+
         if write_graphs:
             plt.plot(outputs)
             plt.plot(labels)
@@ -273,9 +285,20 @@ def test(modelname='resnet_trained/beamng_model_resnet.pth', windowsize=1,
 
 
 if __name__ == '__main__':
-    #train(10, outname='resnet_trained/beamng_new_model_resnet_window1.pth', windowsize=1)
+    # train(10, outname='resnet_trained/beamng_new_model_resnet_window1.pth', windowsize=1)
+    #train(10, outname='resnet_trained/beamng_multicar_model_resnet_window1.pth', tensorfile_prefix='multicar_224_train', windowsize=1)
+    # test(modelname='resnet_trained/beamng_multicar_zoomout_model_resnet_window1.pth', windowsize=1, 
+    #     write_gifs=True, write_graphs=True, tensorfile_prefix='multicar_224_test') # AUROC: 0.8937122325657357
     #train(10, outname='resnet_trained/beamng_new_model_resnet_window3.pth', windowsize=3)
-    test(modelname='resnet_trained/beamng_new_model_resnet_window1.pth', windowsize=1, 
-        write_gifs=True, write_graphs=False, tensorfile_prefix='allframes_224_train') # AUROC: 0.8367088918542843
+    # test(modelname='resnet_trained/beamng_new_model_resnet_window1.pth', windowsize=1, 
+    #     write_gifs=True, write_graphs=False, tensorfile_prefix='allframes_224_train') # AUROC: 0.8367088918542843
     # test(modelname='resnet_trained/beamng_new_model_resnet_window3.pth', windowsize=3, 
     #   write_gifs=False, write_graphs=True, tensorfile_prefix='allframes_224_test') # AUROC: 0.8530373769707917
+
+
+    train(10, outname='resnet_trained/beamng_multicar_zoomout_model_resnet_window1.pth', tensorfile_prefix='multicar_zoomout_224_train', windowsize=1)
+    test(modelname='resnet_trained/beamng_multicar_zoomout_model_resnet_window1.pth', windowsize=1, 
+        write_gifs=True, write_graphs=True, tensorfile_prefix='multicar_zoomout_224_test') # AUROC 0.9168272633240786
+
+# 1363 multicar only frames
+# 655 test frames
