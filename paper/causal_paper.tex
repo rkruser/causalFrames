@@ -132,11 +132,14 @@ Instead of fixing the number of latent variables in advance and learning transfo
 
 \noindent \textbf{Connection to reinforcement learning.} A promising direction for high dimensional causal inference is reinforcement learning \cite{sutton2018reinforcement}, which is strongly related to causal modeling in that it explicitly represents actions performed in the environment. Actions correspond directly to interventions in some causal model. For example, \cite{oh2015action} uses a reinforcement learning agent to play Atari games. The agent can interact with the environment by generating controller inputs, which directly cause changes in the environment in response; thus the agent learns not just how typical Atari gameplay looks, but also the effects of interventions on the observed video sequences. There is not much overlap in the literature of reinforcement learning and causal inference, though some papers have made promising connections. For example, \cite{dasgupta2019causal} uses the method of meta-reinforcement learning to train an agent to predict the effects of interventions on randomly generated causal graphs. Other papers, such as \cite{lange2012autonomous}, do not reference causal literature, but contribute methods of embedding high dimensional data into low-dimensional spaces on which action policies can be computed. Such low dimensional representations may be useful for problems of causal inference. A method from outside the reinforcement learning paradigm which achieves a similar kind of embedding is \emph{slow feature analysis} \cite{kompella2011incremental}, which takes high dimensional data and identifies latent causal factors on the assumption that they change more slowly than the observed output stream.
 
-\noindent \textbf{Prediction and causality.} There are strong connections between predictive models and causal inference, one of which we explore in this paper. The connection results from 
+\noindent \textbf{Prediction and causality.} There are strong connections between predictive models and causal inference, one of which we explore later in this paper. The connection results from the fact that every predictive model can be regarded as a sort of causal model whose points of intervention are the internal state variables of the predictor function. For example, consider a model that takes $m$ past video frames inside an image space $I$ and predicts $n$ future video frames via the function $F: I^m \rightarrow I^n$. Suppose that $F$ factors as the composition of $G: I^m \rightarrow Z$ and $H: Z \rightarrow I^n$, where $Z$ is a latent space. The function $H$ automatically defines the effects of all possible interventions on $Z$. If $Z$ corresponds to a disentangled, interpretable set of high-level image properties, such as whether or not a car in the video is driving smoothly or erratically, then we can use $H$ to predict the likely effects of interventions without actually having performed any interventions during training. Examples of models that learn disentangled representations include \cite{chen2016infogan} for static images and \cite{denton2017unsupervised} for videos. There are also many models that attempt to directly predict future video frames, such as \cite{babaeizadeh2017stochastic}, \cite{lotter2016deep}, \cite{finn2016unsupervised}, \cite{walker2014patch}. Such models might be combined with causal methods to infer underlying causal structure in video.
 
+The prediction paradigm that we use in this paper is simpler, in that we do not seek to predict future video frames, but instead single outcomes (whether or not a car crash has occurred). Instead of seeking to disentangle latent factors influencing the progression of the video, we train a predictor on every frame to detect a crash, and then we use the magnitude of the gradients on the input images to provide a salience map of what the model thinks is relevant to the outcome. % Add more?
 
+\noindent \textbf{Other related work.} There are many other miscellaneous papers on causal inference, which often focus on heuristics for performing inference on low-dimensional datasets \cite{veitch2019using}, \cite{rojas2018invariant}. The problem of learning causal graphs is a subset of the more general problem of learning directed acyclic graphs (DAGS) \cite{xie2008recursive} and bayesian network structures \cite{daly2011learning}. %Come back to this and these references
 
-\noindent \textbf{Other related work.} 
+\section{Formalism}
+
 
 
 
@@ -181,7 +184,7 @@ Instead of fixing the number of latent variables in advance and learning transfo
 
 
 
-\nocite{*}
+%\nocite{*}
 
 \bibliography{sources}
 \bibliographystyle{aaai}
