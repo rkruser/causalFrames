@@ -139,22 +139,33 @@ The prediction paradigm that we use in this paper is simpler, in that we do not 
 
 \noindent \textbf{Other related work.} There are many other miscellaneous papers on causal inference, which often focus on heuristics for performing inference on low-dimensional datasets \cite{veitch2019using}, \cite{rojas2018invariant}. The problem of learning causal graphs is a subset of the more general problem of learning directed acyclic graphs (DAGS) \cite{xie2008recursive} and bayesian network structures \cite{daly2011learning}. %Come back to this and these references
 
+
+
+% Add a section giving background in the formalism of causality?
+
 \section{Causal Frames}
 
-Let $V = \{I_1, I_2, ... I_n\}$ be the $n$ frames of a video, each frame $I_j  \in \mathbb{R}^d$ an RGB image of dimension $d=\text{width}\cdot\text{height}\cdot 3$. At some point in the video, an irreversible event occurs which is detectible in the frame. Each frame $I_j$ is annoted with the label $y_j$, which is 0 or a 1 depending on whether or not the event has occurred yet (so the labels form a sequence of 0s followed by 1s). We define the \emph{causal frame} as the first frame associated with the label 1. We can train a predictor $F: \mathbb{R}^d \rightarrow [0,1]$ to estimate the probability that the event is occurring in each frame. Thus every $I_j$ is associated with $p_j = F(I_j)$, and we can in principle detect the causal frame of a video by finding the frame where $p_j$ drastically increases. To counteract noise that may lead to false identification, we can, for each $j$, compute a loss function $L(j, V)$ for the hypothesis that the $j$th frame is the causal frame, and then pick the value of $j$ with the minimum loss. In practice, we use  $L(j, V) = \sum_{i<j} p_i^2 + \sum_{k>j} (1-p_k)^2$, which will be minimized at $j$ if the frame is causal and there is not too much noise. 
+Let $V = \{I_1, I_2, ... I_n\}$ be the $n$ frames of a video, each frame $I_j  \in \mathbb{R}^d$ an RGB image of dimension $d=\text{width}\cdot\text{height}\cdot 3$. At some point in the video, an irreversible event occurs which is detectible in the frame. Each frame $I_j$ is annoted with the label $y_j$, which is 0 or a 1 depending on whether or not the event has occurred yet (so the labels form a sequence of 0s followed by 1s). We define the \emph{causal frame} as the first frame associated with the label 1. We can train a predictor $F: \mathbb{R}^d \rightarrow [0,1]$ to estimate the probability that the event is occurring in each frame. Thus every $I_j$ is associated with $p_j = F(I_j)$, and we can in principle detect the causal frame of a video by finding the frame where $p_j$ drastically increases. To counteract noise that may lead to false identification, we can, for each $j$, compute a loss function $L(j, V)$ for the hypothesis that the $j$th frame is the causal frame, and then pick the value of $j$ with the minimum loss. In practice, we use  $L(j, V) = \sum_{i<j} p_i^2 + \sum_{k>j} (1-p_k)^2$, which will be minimized at $j$ if the frame is causal and there is not too much noise. %Modify function to include probabilistic cutoff point
 
 \noindent \textbf{Salience Maps.} The magnitudes of the components of the gradient $\nabla F(I_j)$ contain information about the portions of the input image that contributed the most to the prediction. Thus we can use such gradients to overlay the input image with a salience map of the most relevant regions of the image. In practice, the gradient is easily computed using the standard backpropagation method implemented in any deep learning library, and the most salient parts can be extracted by taking the absolute value of each gradient component and zeroing out any value below some percentile, such as the 90th or 95th percentile. This salience map can then be further analyzed with clustering, or in combination with other models that can recognize the objects under the salient portions of the image.
 
-\noindent \textbf{Connection to causality.} As this model cannot interact with the process that generated the video, identifying the causal frame does not yield precise information about any possible intervention. However, it identifies the time point at which an intervention might take place, and even which objects in the frame might admit such an intervention. This is similar to Granger causality in that although we do not know the true latent variables responsible for the irreversible event,  the time series of frames $I_j$ is being used to extract probabilistic information about the nondecreasing time series of event labels.
+\noindent \textbf{Connection to causality.} As this model cannot interact with the process that generated the video, identifying the causal frame does not yield precise information about the causal effect of any possible intervention. However, it identifies the time point at which an intervention might take place, and even which objects in the frame might admit such an intervention. This is similar to Granger causality in that although we do not know the true latent variables responsible for the irreversible event,  the time series of frames $I_j$ is being used to extract probabilistic information about the dependent, nondecreasing time series of event labels. Further models can then explore the causal event in detail. 
+
+Such models could be useful for detecting relevant points in video where some dynamic about the video shifts, such as the moment a robbery is caught on a security camera, or the moment when a car crash becomes unavoidable. In the car crash example, the salience map could be used to assign blame to whichever car's actions contributed the most to the accident.
 
 
 \section{Dataset}
 
+To advance the goal of identifying causality in high dimensional datasets, we introduce a dataset of simulated car crashes generated by the Steam game BeamNG.drive \cite{beamng}. This game is capable of generating high-resolution, physically realistic videos of car crashes.
 
-\section{Methodology}
+The dataset consists of 100 mp4 videos of car crashes at 1080p resolution. Each video is annotated with the human-estimated time point at which a crash appears to be inevitable. % The videos are multicar and overhead
+% Figure \ref{fig1} shows an image from the dataset
+% The dataset can be downloaded at ...
 
 
-\section{Results}
+
+\section{Model and Results}
+
 
 
 \section{Conclusion}
