@@ -13,6 +13,7 @@
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+from collections import namedtuple
 
 T = 14
 
@@ -63,7 +64,8 @@ class Zipindexibles:
         elif isinstance(key, np.ndarray):
             if len(key.shape)==1:
                 if key.dtype=='bool':
-                    return self._bool_array_index(key)
+                    key = np.arange(len(key))[key]
+                    return self._int_array_index(key)
                 elif 'int' in str(key.dtype):
                     return self._int_array_index(key)
                 else:
@@ -106,7 +108,7 @@ class Zipindexibles:
             stop = self.__len__()
             
         if self.slice_is_list:
-            return self._int_array_index(np.arange(start,stop,step))
+            return self._int_array_index(range(start,stop,step)) #changed from np.arange to range
         
         if step < 0:
             print("Warning: negative step size produces undefined behavior when slicing a Zipindexibles object")
@@ -134,14 +136,14 @@ class Zipindexibles:
             all_items.append(self._access(i))
         return all_items
         
-    def _bool_array_index(self, key):
-        if len(key) != self.__len__():
-            raise KeyError('Zipindexibles numpy boolean key has wrong length')
-        all_items = []
-        for i in range(len(key)):
-            if key[i]:
-                all_items.append(self._access(i))
-        return all_items
+#    def _bool_array_index(self, key):
+#        if len(key) != self.__len__():
+#            raise KeyError('Zipindexibles numpy boolean key has wrong length')
+#        all_items = []
+#        for i in range(len(key)):
+#            if key[i]:
+#                all_items.append(self._access(i))
+#        return all_items
     
 
 
@@ -252,7 +254,7 @@ class VideoWrapper:
     def __enter__(self):
         return self
         
-    def __exit__(self):
+    def __exit__(self, exception_type, exception_value, traceback):
         self._cleanup()
         
 
@@ -289,71 +291,240 @@ class Video:
     videofile is a string with a path to the file (must be absolute)
     videolabel is a named tuple with external attributes of the video
     '''
+    
+    # Also store playback properties somewhere in here
+    #  (default ones if no access to video itself)
+    
+    # frame_subtraction not implemented
     def __init__(self, 
-                 videofile, 
-                 videoinfo, 
+                 videofile=None, 
+                 videoarray=None,
+                 labelinfo=None, # List of named tuples
+                 label_func=lambda key, size, labelinfo : 0, #?
                  frames_per_datapoint=1, 
                  overlap_datapoints=True, #only relevant if more than 1 frame per datapoint
                  frame_subtraction=False,
                  return_transitions=False,
-                 frame_transform=None, #Transformation to apply per-frame
+                 frame_transform=lambda x : x, #Transformation to apply per-frame
+                 playback_info = {'frame_duration':0.04, 'fps':25},
                  sample_every=1, #Rate to keep frames
                  start_frame=0,
                  end_frame=-1
                 ):
-        pass
+        
+        
+        self.playback_info = playback_info
+        
+        if videoarray is not None:
+            if end_frame < 0:
+                end_frame = len(videoarray)
+            videoarray = videoarray[start_frame:end_frame:sample_every]
+
+            if frame_transform is not None:
+                all_frames = []
+                for frame in videoarray:
+                    all_frames.append(frame_transform(frame))
+                videoarray = np.stack(all_frames)
+
+            self.array = videoarray
+                
+        elif videofile is not None:
+            with VideoWrapper(videofile) as vid:
+                all_frames = []
+
+                if end_frame < 0:
+                    end_frame = len(vid)
+
+                count = 0
+                for i, frame in enumerate(vid):
+                    print(i)
+                    if i < start_frame:
+                        continue
+                    if i >= end_frame:
+                        break
+                    if count%sample_every != 0:
+                        continue
+                    count += 1
+
+                    all_frames.append(frame_transform(frame))
+
+                self.array = np.stack(all_frames)
+                self.playback_info.update({'frame_duration':vid.frame_duration,
+                                            'fps':vid.framerate,
+                                            'window_name': vid.filename})
+            
+        else:
+            raise ValueError('Video constructor received only None objects')
+                
+        self.frames_per_datapoint = frames_per_datapoint
+        self.overlap_datapoints = overlap_datapoints
+        self.frame_subtraction = frame_subtraction
+        self.return_transitions = return_transitions
+        self.labelinfo = labelinfo
+        self.label_func = label_func       
+        
+        # These need to be rethought ***
+        # Python apparently looks ahead when initializing, leading to dependency errors
+#        self.length = Video.compute_length(len(self.array), overlap_datapoints, frames_per_datapoint)
+#        self.labels = Video.extract_labels(self.length, label_func, labelinfo)
+        
+        self._compute_length()
+        self._set_accessor_func()
+        self._extract_labels() #Get array of labels for each frame
     
+    @staticmethod
+    def compute_length(array_len, overlap_datapoints, frames_per_datapoint):
+        if overlap_datapoints:
+            array_len = array_len-frames_per_datapoint+1
+        else:
+            array_len = array_len // frames_per_datapoint
+        return array_len
+    
+    @staticmethod
+    def extract_labels(length, label_func, labelinfo):
+        all_labels = []
+        for key in range(length):
+            all_labels.append(self.label_func(key,length,labelinfo))
+        labels = np.stack(all_labels)       
+        return labels
+    
+    
+     # provide label for key value
+    def _extract_labels(self):
+#        self.labels = Video.extract_labels(self.__len__(), self.label_func, self.labelinfo)
+        all_labels = []
+        for key in range(self.__len__()):
+            all_labels.append(self.label_func(key,self.__len__(),self.labelinfo)) #depends on size too, maybe on other parameters
+        self.labels = np.stack(all_labels)
+    
+    def _compute_length(self):
+#        self.length = Video.compute_length(len(self.array), self.overlap_datapoints, self.frames_per_datapoint)
+        l = len(self.array)
+        if self.overlap_datapoints:
+            l = l-self.frames_per_datapoint+1
+        else:
+            l = l // self.frames_per_datapoint
+        
+        self.length = l
+        
+    def _set_accessor_func(self):
+        if self.frames_per_datapoint > 1:
+            if self.return_transitions:
+                self.accessor_func = self.getbundletransition
+            else:
+                self.accessor_func = self.getbundle
+        else:
+            if self.return_transitions:
+                self.accessor_func = self.getframetransition
+            else:
+                self.accessor_func = self.getframe
+        
+#      Use object.__setattr__() or something to get around this
+#    def __setattr__(self, name, val):
+#        super().__setattr__(name, val)
+#        if name in ['overlap_datapoints', 'frames_per_datapoint']:
+#            self._compute_length()
+##        if name in ['frames_per_datapoint', 'return_transitions']:
+##            self._set_accessor_func()
+#        if name in ['labelinfo', 'label_func']:
+#            self._extract_labels()
     
     def __len__(self):
-        pass
+        return self.length
     
     def __getitem__(self, key):
         if isinstance(key, slice):
-            pass
+            start = key.start
+            stop = key.stop
+            step = key.step
+            if start is None:
+                start = 0
+            if stop is None:
+                stop = self.__len__()
+            if step is None:
+                step = 1
+            return self._slice(range(start,stop,step))
+        elif isinstance(key, np.ndarray):
+            if len(key.shape)==1:
+                if key.dtype=='bool':
+                    key = np.arange(len(key))[key]
+                    return self._slice(key)
+                elif 'int' in str(key.dtype):
+                    return self._slice(key)
+                else:
+                    raise KeyError('Zipindexibles key array has invalid type')
+            else:
+                raise(KeyError('Zipindexibles key array has wrong number of dimensions'))       
         else:
-            pass
+            if key < 0:
+                key = key+self.__len__()
+            if key < 0 or key > self.__len__():
+                raise KeyError('Video key out of bounds')
+            return self._retrieve_item(key)
         
+    def _slice(self, slice_range):
+        all_items = []
+        for i in slice_range:
+            all_items.append(self._retrieve_item(i))
+        if len(all_items) > 0:
+            array, labels = zip(*all_items)
+            array = np.stack(array)
+            labels = np.stack(labels)
+        else:
+            array = np.array([])
+            labels = np.array([])
 
-    
-    @staticmethod
-    def _load_video(videofile):
-        pass
-    
-    @property
-    def num_frames(self):
-        pass
-    
-    @property
-    def num_bundles(self):
-        pass
-    
-    @property
-    def num_frame_transitions(self):
-        pass
-    
-    @property
-    def num_bundle_transitions(self):
-        pass
-    
-    @property
-    def frame_rate(self):
-        pass
-    
-    @property
-    def frame_duration(self):
-        pass
+        return array, labels
+        
+    def _retrieve_item(self, key):
+#        if self.frames_per_datapoint > 1:
+#            if self.return_transitions:
+#                return self.get_bundle_transition(key)
+#            else:
+#                return self.get_bundle(key)
+#        else:
+#            if self.return_transitions:
+#                return self.get_frame_transitions(key)
+#            else:
+#                return self.get_frame(key)
+        return self.accessor_func(key)
         
     def getframe(self, key):
-        pass
+        return self.array[key], self.labels[key]
     
     def getbundle(self, key):
-        pass
+        if self.overlap_datapoints:
+            return self.array[key:key+self.frames_per_datapoint], self.labels[key]
+        else:
+            index = key*self.frames_per_datapoint
+            return self.array[index:index+self.frames_per_datapoint], self.labels[key]
+        return
     
+    # Right now slicing just doesn't work with terminal states
+    # I guess that's fine for now
     def getframetransition(self, key):
-        pass
+        if key == self.__len__()-1:
+            target = None #Need to make this zeros in shape of other thign
+            target_label = None # Need to use standard terminal label value like Nan
+            return np.stack([self.array[key]]), np.stack([self.labels[key]])
+        else:
+            target = self.array[key+1]
+            target_label = self.labels[key+1]
+            return np.stack((self.array[key], target)), np.stack((self.labels[key], target_label))
     
+    # Right now slicing just doesn't work with terminal states
+    # I guess that's fine for now
     def getbundletransition(self, key):
-        pass
+        if key == self.__len__()-1:
+            target = None # Need to make this zeros in shape of other thing
+            target_label = None #Need to use standard terminal label value
+            return np.stack([self.getbundle(key)]), np.stack([self.labels[key]])
+        else:
+            target, target_label = self.getbundle(key+1)
+            return np.stack((self.getbundle(key), target)), np.stack((self.labels[key], target_label))
+    
+    def play(self):
+        play_rgb(self.array, **self.playback_info)
     
     
 
