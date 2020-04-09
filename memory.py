@@ -169,7 +169,7 @@ def ftransform(frame):
 # Instead, have video file wrapper that provides an interface for
 #  loading frames. Can swap between cv2 and ffmpeg more easily that way
 #  Video class below uses this wrapper
-class VideoWrapper:
+class VideoFile:
     class VideoLoadError(Exception):
         def __init__(self, message='Video did not load'):
             super().__init__(message)
@@ -179,7 +179,7 @@ class VideoWrapper:
         self.filename = filename
         self.video_object = cv2.VideoCapture(self.filename)
         if not self.video_object.isOpened():
-            raise VideoWrapper.VideoLoadError()
+            raise VideoFile.VideoLoadError()
         self.frame_pos = 0
         
         self.num_frames = int(self.video_object.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -198,7 +198,7 @@ class VideoWrapper:
         if n < 0:
             n = self.__len__()+n
         if n < 0 or n >= self.__len__():
-            raise KeyError('VideoWrapper key out of bounds')
+            raise KeyError('VideoFile key out of bounds')
         ret, frame = self._nthframe(n)
         if not ret:
             raise KeyError('Could not return frame {}'.format(n))
@@ -236,7 +236,7 @@ class VideoWrapper:
             return frame
         else:
             if self.frame_pos < self.num_frames:
-                print("Warning: VideoWrapper iterator exited before end of video")
+                print("Warning: VideoFile iterator exited before end of video")
             raise StopIteration
             
     def play(self, scale=0.25, playback_speed=1.0, window_name=None):
@@ -259,7 +259,7 @@ class VideoWrapper:
         
 
         
-def play_rgb(frames, frame_duration=40, fps=None, scale=0.25, playback_speed=1.0, window_name='video'):
+def play_rgb(frames, frame_duration=40, fps=None, scale=1.0, playback_speed=1.0, window_name='video'):
     print("Press q to stop playback")
 
     playback_multiplier = 1.0/playback_speed
@@ -281,12 +281,31 @@ def play_rgb(frames, frame_duration=40, fps=None, scale=0.25, playback_speed=1.0
                 break
     cv2.destroyAllWindows()       
         
+
+
+
+
+
+
+
+def frame_transform_1(frame):
+    frame = cv2.resize(frame, (256,256))
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    return frame
+
+InfoType1 = namedtuple('InfoType1', 'crash')
+
+def label_func_1(key, size, info):
+    if key == size-1:
+        if info.crash:
+            return 1.0
+    return 0.0
         
 # Treat a numpy array as a video file
 # Or possibly just an object that can be indexed like a numpy array
 # Possibly just merge this with vidLoader instead of separating them
 # Have a base class
-class Video:
+class VideoArray:
     '''
     videofile is a string with a path to the file (must be absolute)
     videolabel is a named tuple with external attributes of the video
@@ -299,7 +318,8 @@ class Video:
     def __init__(self, 
                  videofile=None, 
                  videoarray=None,
-                 labelinfo=None, # List of named tuples
+                 labels=None,
+                 labelinfo=None, # named tuple or other accessible object
                  label_func=lambda key, size, labelinfo : 0, #?
                  frames_per_datapoint=1, 
                  overlap_datapoints=True, #only relevant if more than 1 frame per datapoint
@@ -309,12 +329,16 @@ class Video:
                  playback_info = {'frame_duration':0.04, 'fps':25},
                  sample_every=1, #Rate to keep frames
                  start_frame=0,
-                 end_frame=-1
+                 end_frame=-1,
+                 TERMINAL_LABEL=-2,
+                 verbose=False
                 ):
         
         
         self.playback_info = playback_info
+        self.verbose = verbose
         
+        # Consider moving these into helper functions
         if videoarray is not None:
             if end_frame < 0:
                 end_frame = len(videoarray)
@@ -329,7 +353,7 @@ class Video:
             self.array = videoarray
                 
         elif videofile is not None:
-            with VideoWrapper(videofile) as vid:
+            with VideoFile(videofile) as vid:
                 all_frames = []
 
                 if end_frame < 0:
@@ -337,16 +361,16 @@ class Video:
 
                 count = 0
                 for i, frame in enumerate(vid):
-                    print(i)
+                    if self.verbose:
+                        print(i)
                     if i < start_frame:
                         continue
                     if i >= end_frame:
                         break
-                    if count%sample_every != 0:
-                        continue
+                    if count%sample_every == 0:
+                        all_frames.append(frame_transform(frame))
                     count += 1
 
-                    all_frames.append(frame_transform(frame))
 
                 self.array = np.stack(all_frames)
                 self.playback_info.update({'frame_duration':vid.frame_duration,
@@ -354,7 +378,7 @@ class Video:
                                             'window_name': vid.filename})
             
         else:
-            raise ValueError('Video constructor received only None objects')
+            raise ValueError('VideoArray constructor received only None objects')
                 
         self.frames_per_datapoint = frames_per_datapoint
         self.overlap_datapoints = overlap_datapoints
@@ -362,43 +386,50 @@ class Video:
         self.return_transitions = return_transitions
         self.labelinfo = labelinfo
         self.label_func = label_func       
+        self.labels=labels
+        self.TERMINAL_LABEL = TERMINAL_LABEL
         
         # These need to be rethought ***
         # Python apparently looks ahead when initializing, leading to dependency errors
-#        self.length = Video.compute_length(len(self.array), overlap_datapoints, frames_per_datapoint)
-#        self.labels = Video.extract_labels(self.length, label_func, labelinfo)
+#        self.length = VideoArray.compute_length(len(self.array), overlap_datapoints, frames_per_datapoint)
+#        self.labels = VideoArray.extract_labels(self.length, label_func, labelinfo)
         
         self._compute_length()
         self._set_accessor_func()
-        self._extract_labels() #Get array of labels for each frame
-    
-    @staticmethod
-    def compute_length(array_len, overlap_datapoints, frames_per_datapoint):
-        if overlap_datapoints:
-            array_len = array_len-frames_per_datapoint+1
+
+        if self.labels is None:
+            self._extract_labels() #Get array of labels for each frame
+            self.given_labels = False
         else:
-            array_len = array_len // frames_per_datapoint
-        return array_len
+            self.given_labels = True
+
     
-    @staticmethod
-    def extract_labels(length, label_func, labelinfo):
-        all_labels = []
-        for key in range(length):
-            all_labels.append(self.label_func(key,length,labelinfo))
-        labels = np.stack(all_labels)       
-        return labels
-    
+#    @staticmethod
+#    def compute_length(array_len, overlap_datapoints, frames_per_datapoint):
+#        if overlap_datapoints:
+#            array_len = array_len-frames_per_datapoint+1
+#        else:
+#            array_len = array_len // frames_per_datapoint
+#        return array_len
+#    
+#    @staticmethod
+#    def extract_labels(length, label_func, labelinfo):
+#        all_labels = []
+#        for key in range(length):
+#            all_labels.append(self.label_func(key,length,labelinfo))
+#        labels = np.stack(all_labels)       
+#        return labels
     
      # provide label for key value
     def _extract_labels(self):
-#        self.labels = Video.extract_labels(self.__len__(), self.label_func, self.labelinfo)
+#        self.labels = VideoArray.extract_labels(self.__len__(), self.label_func, self.labelinfo)
         all_labels = []
         for key in range(self.__len__()):
             all_labels.append(self.label_func(key,self.__len__(),self.labelinfo)) #depends on size too, maybe on other parameters
         self.labels = np.stack(all_labels)
     
     def _compute_length(self):
-#        self.length = Video.compute_length(len(self.array), self.overlap_datapoints, self.frames_per_datapoint)
+#        self.length = VideoArray.compute_length(len(self.array), self.overlap_datapoints, self.frames_per_datapoint)
         l = len(self.array)
         if self.overlap_datapoints:
             l = l-self.frames_per_datapoint+1
@@ -459,7 +490,7 @@ class Video:
             if key < 0:
                 key = key+self.__len__()
             if key < 0 or key > self.__len__():
-                raise KeyError('Video key out of bounds')
+                raise KeyError('VideoArray key out of bounds')
             return self._retrieve_item(key)
         
     def _slice(self, slice_range):
@@ -503,25 +534,24 @@ class Video:
     # Right now slicing just doesn't work with terminal states
     # I guess that's fine for now
     def getframetransition(self, key):
+        cur, cur_label = self.getframe(key)
         if key == self.__len__()-1:
-            target = None #Need to make this zeros in shape of other thign
-            target_label = None # Need to use standard terminal label value like Nan
-            return np.stack([self.array[key]]), np.stack([self.labels[key]])
+            target = np.zeros(cur.shape) #Need to make this zeros in shape of other thign
+            target_label = self.TERMINAL_LABEL # Need to use standard terminal label value like Nan
         else:
-            target = self.array[key+1]
-            target_label = self.labels[key+1]
-            return np.stack((self.array[key], target)), np.stack((self.labels[key], target_label))
+            target, target_label = self.getframe(key+1)
+        return np.stack([cur, target]), np.stack([cur_label, target_label])
     
     # Right now slicing just doesn't work with terminal states
     # I guess that's fine for now
     def getbundletransition(self, key):
+        cur, cur_label = self.getbundle(key)
         if key == self.__len__()-1:
-            target = None # Need to make this zeros in shape of other thing
-            target_label = None #Need to use standard terminal label value
-            return np.stack([self.getbundle(key)]), np.stack([self.labels[key]])
+            target = np.zeros(cur.shape) # Need to make this zeros in shape of other thing
+            target_label = self.TERMINAL_LABEL #Need to use standard terminal label value
         else:
             target, target_label = self.getbundle(key+1)
-            return np.stack((self.getbundle(key), target)), np.stack((self.labels[key], target_label))
+        return np.stack([cur, target]), np.stack([cur_label, target_label])
     
     def play(self):
         play_rgb(self.array, **self.playback_info)
