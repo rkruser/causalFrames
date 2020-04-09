@@ -79,6 +79,18 @@ class Zipindexables:
                 return self._access(key)
             except KeyError as e:
                 raise KeyError('Zipindexables key error') from e
+
+    def __iter__(self):
+        self.iter_index=0
+        return self
+
+    def __next__(self):
+        if self.iter_index < self.__len__():
+            item = self.__getitem__(self.iter_index)
+            self.iter_index += 1
+            return item
+        else:
+            raise StopIteration
             
     def get_indexable(self, key):
         return self.items[key]
@@ -318,8 +330,10 @@ class VideoArray:
                  frame_transform=lambda x : x, #Transformation to apply per-frame
                  playback_info = {'fps':25},
                  sample_every=1, #Rate to keep frames
-                 start_frame=0,
-                 end_frame=-1,
+                 start_frame=None,
+                 end_frame=None,
+                 start_time=0,
+                 end_time=-1,
                  TERMINAL_LABEL=-2,
                  verbose=False
                 ):
@@ -330,6 +344,14 @@ class VideoArray:
         
         # Consider moving these into helper functions
         if videoarray is not None:
+            if start_frame is None:
+                start_frame = int(start_time*playback_info['fps'])
+            if end_frame is None:
+                if end_time < 0:
+                    end_frame = -1
+                else:
+                    end_frame = int(end_time*playback_info['fps'])
+
             if end_frame < 0:
                 end_frame = len(videoarray)
             videoarray = videoarray[start_frame:end_frame:sample_every]
@@ -346,7 +368,15 @@ class VideoArray:
             with VideoFile(videofile) as vid:
                 all_frames = []
 
-                if end_frame < 0:
+                if start_frame is None:
+                    start_frame = vid.framenum_at_time(start_time)
+                if end_frame is None:
+                    if end_time < 0:
+                        end_frame=-1
+                    else:
+                        end_frame = vid.framenum_at_time(end_time)
+
+                if end_frame < 0: 
                     end_frame = len(vid)
 
                 count = 0
@@ -548,6 +578,9 @@ class VideoArray:
     
     
 
+
+######## Stuff about loading datasets below ##############
+
 def frame_transform_1(frame):
     frame = cv2.resize(frame, (256,256))
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -574,8 +607,8 @@ def label_func_1(key, size, info):
                  frame_transform=lambda x : x, #Transformation to apply per-frame
                  playback_info = {'fps':25},
                  sample_every=1, #Rate to keep frames
-                 start_frame=0,
-                 end_frame=-1,
+                 start_time=0,
+                 end_time=-1,
                  TERMINAL_LABEL=-2,
                  verbose=False
 
@@ -587,32 +620,62 @@ class FileTracker:
         pass
     def file_list(self):
         pass
+    def file_ids(self):
+        pass
     def basenames(self):
         pass
     def file_info(self):
         pass
 
 class BeamNG_FileTracker(FileTracker):
-    def __init__(self, datapath, basename_list=None, manifest='manifest.txt', info_file='times.txt'):
+    def __init__(self, datapath, basename_list=None, crash_truncate_list=None, manifest='manifest.txt', info_file='times.txt'):
         self.datapath = datapath
         self.basename_list = basename_list
+        self.crash_truncate_list = crash_truncate_list
         self.manifest = os.path.join(datapath, manifest)
         self.info_file = os.path.join(datapath, info_file)
 
         if self.basename_list is None:
             print("Loading basenames from manifest is unimplemented")
             pass # Do something with the manifest
+        if self.crash_truncate_list is None:
+            self.crash_truncate_list = np.zeros(len(basename_list)).astype('bool')
         
         self.file_id_list = [os.path.splitext(fname)[0] for fname in basename_list]
+        self.fullpaths = [os.path.abspath(os.path.join(self.datapath,fname)) for fname in basename_list]
 
-        self.fullpaths = [os.path.abspath(os.path.join(self.datapath,fname)) for fname in self.basename_list]
+        self.id_to_fullpath = {self.file_id_list[i]:self.fullpaths[i] for i in range(len(basename_list))}
+        self.id_to_crash_truncate = {self.file_id_list[i]:self.crash_truncate_list[i] for i in range(len(basename_list))}
+
+
         self._load_info_file()
 
 
     def _load_info_file(self):
-        info = {}
+        self.info = {}
         with open(self.info_file, 'r') as fobj:
-            pass
+            lines = fobj.readlines()
+            for line in lines:
+                fid, starttime, crashtime = line.split()[:3]
+
+                if fid in self.id_to_fullpath:
+                    starttime = float(starttime)
+                    crashtime = float(crashtime)
+
+                    if self.id_to_crash_truncate[fid]:
+                        endtime=crashtime-0.5
+                        crash=False
+                    else:
+                        endtime=-1
+                        crash=True
+
+                    self.info[self.id_to_fullpath[fid]] = InfoType1(crash=crash,
+                                                          crashtime=crashtime,
+                                                          starttime=starttime,
+                                                          endtime=endtime,
+                                                          startframe=None,
+                                                          endframe=None)
+
             # Need to map file ids to full paths and nametuples
 
     # Return list of fullpath filenames
@@ -630,7 +693,14 @@ class BeamNG_FileTracker(FileTracker):
         return self.info
 
 
+def random_proportion_true(size, proportion=0.5):
+    arr = np.zeros(size).astype('bool')
+    inds = np.random.permutation(np.arange(size))[:int(size*proportion)]
+    arr[inds] = True
+    return arr
 
+datapath = '/mnt/linuxshared/phd-research/data/beamng_vids/all_vids'
+basename_list = [ 'v1_1.mp4', 'v1_2.mp4', 'v1_3.mp4', 'v1_4.mp4' ]
 
 class VideoDataset(Dataset):
     '''
@@ -645,7 +715,7 @@ class VideoDataset(Dataset):
                 label_func=label_func_1, 
                 frames_per_datapoint=1, 
                 frame_subtraction=False,
-                return_transitions=True,
+                return_transitions=False,
                 sample_every=1,
                 TERMINAL_LABEL=-2,
                 verbose=False,
@@ -664,8 +734,8 @@ class VideoDataset(Dataset):
                                        return_transitions=return_transitions,
                                        frame_transform=frame_transform,
                                        sample_every=sample_every,
-                                       start_frame=labelinfo.startframe, #named tuple must include start and end frames
-                                       end_frame=labelinfo.endframe, #To do: add support for start time and end time for easy truncation
+                                       start_time=labelinfo.starttime, #named tuple must include start and end frames
+                                       end_time=labelinfo.endtime, #To do: add support for start time and end time for easy truncation
                                        TERMINAL_LABEL=TERMINAL_LABEL,
                                        verbose=verbose))
 
@@ -676,6 +746,10 @@ class VideoDataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, i):
+        if i < 0:
+            i = i+self.__len__()
+        if i < 0 or i > self.__len__():
+            raise KeyError('VideoDataset key out of range')
         return self.data[i]
 
     def num_videos(self):
@@ -684,4 +758,13 @@ class VideoDataset(Dataset):
     def get_video(self,i):
         return self.data.get_indexable(i)
     
+    def play_video(self, i):
+        vid = self.get_video(i)
+        vid.play()
     
+#    Need to think more about this one. (Careful of colorspaces, array reps)
+#    def play_all(self):
+#        play_rgb(self.data)
+
+# Next: a quick RGB / Gray / tensor transform
+# Then: Quick training of a large resnet
