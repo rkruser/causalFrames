@@ -14,6 +14,8 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from collections import namedtuple
+from torch.utils.data import Dataset
+import os
 
 T = 14
 
@@ -40,11 +42,11 @@ class Zipindices:
         else:
             return place, key-self.clist[place-1]-1
 
-class Zipindexibles:
-    # indexibles is an iterable of objects with len and getitem defined
-    def __init__(self, indexibles, slice_is_list=True):
-        self.items = indexibles
-        self.slice_is_list = slice_is_list
+class Zipindexables:
+    # indexables is an iterable of objects with len and getitem defined
+    def __init__(self, indexables, slice_is_range=True):
+        self.items = indexables
+        self.slice_is_range = slice_is_range
         self._buildindex()
         
     def _buildindex(self):
@@ -69,27 +71,27 @@ class Zipindexibles:
                 elif 'int' in str(key.dtype):
                     return self._int_array_index(key)
                 else:
-                    raise KeyError('Zipindexibles key array has invalid type')
+                    raise KeyError('Zipindexables key array has invalid type')
             else:
-                raise(KeyError('Zipindexibles key array has wrong number of dimensions'))
+                raise(KeyError('Zipindexables key array has wrong number of dimensions'))
         else:
             try:
                 return self._access(key)
             except KeyError as e:
-                raise KeyError('Zipindexibles key error') from e
+                raise KeyError('Zipindexables key error') from e
             
-    def get_indexible(self, key):
+    def get_indexable(self, key):
         return self.items[key]
     
-    def num_indexibles(self):
+    def num_indexables(self):
         return len(self.items)
     
     def __str__(self):
         return self.__repr__()+', contents = '+str(self.items)
         
     def __repr__(self):
-        return 'Zipindexibles object, indexibles {0}, items {1}'.format(
-            self.num_indexibles(), self.__len__())
+        return 'Zipindexables object, indexables {0}, items {1}'.format(
+            self.num_indexables(), self.__len__())
             
     def _access(self, key):
         place, ind = self.zipindex[key]
@@ -107,11 +109,11 @@ class Zipindexibles:
         if stop is None:
             stop = self.__len__()
             
-        if self.slice_is_list:
+        if self.slice_is_range:
             return self._int_array_index(range(start,stop,step)) #changed from np.arange to range
         
         if step < 0:
-            print("Warning: negative step size produces undefined behavior when slicing a Zipindexibles object")
+            print("Warning: negative step size produces undefined behavior when slicing a Zipindexables object")
         
         place_list = []
         place_inds = {}
@@ -128,7 +130,7 @@ class Zipindexibles:
             sl = place_inds[j]
             new_items.append(self.items[j][sl[0]:sl[1]+step:step])
                              
-        return Zipindexibles(new_items)
+        return Zipindexables(new_items)
             
     def _int_array_index(self, key):
         all_items = []
@@ -138,7 +140,7 @@ class Zipindexibles:
         
 #    def _bool_array_index(self, key):
 #        if len(key) != self.__len__():
-#            raise KeyError('Zipindexibles numpy boolean key has wrong length')
+#            raise KeyError('Zipindexables numpy boolean key has wrong length')
 #        all_items = []
 #        for i in range(len(key)):
 #            if key[i]:
@@ -288,18 +290,6 @@ def play_rgb(frames, frame_duration=40, fps=None, scale=1.0, playback_speed=1.0,
 
 
 
-def frame_transform_1(frame):
-    frame = cv2.resize(frame, (256,256))
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-    return frame
-
-InfoType1 = namedtuple('InfoType1', 'crash')
-
-def label_func_1(key, size, info):
-    if key == size-1:
-        if info.crash:
-            return 1.0
-    return 0.0
         
 # Treat a numpy array as a video file
 # Or possibly just an object that can be indexed like a numpy array
@@ -326,7 +316,7 @@ class VideoArray:
                  frame_subtraction=False,
                  return_transitions=False,
                  frame_transform=lambda x : x, #Transformation to apply per-frame
-                 playback_info = {'frame_duration':0.04, 'fps':25},
+                 playback_info = {'fps':25},
                  sample_every=1, #Rate to keep frames
                  start_frame=0,
                  end_frame=-1,
@@ -483,9 +473,9 @@ class VideoArray:
                 elif 'int' in str(key.dtype):
                     return self._slice(key)
                 else:
-                    raise KeyError('Zipindexibles key array has invalid type')
+                    raise KeyError('Zipindexables key array has invalid type')
             else:
-                raise(KeyError('Zipindexibles key array has wrong number of dimensions'))       
+                raise(KeyError('Zipindexables key array has wrong number of dimensions'))       
         else:
             if key < 0:
                 key = key+self.__len__()
@@ -558,34 +548,140 @@ class VideoArray:
     
     
 
-    
-    
+def frame_transform_1(frame):
+    frame = cv2.resize(frame, (256,256))
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    return frame
 
-class VideoDataset:
+InfoType1 = namedtuple('InfoType1', 'crash crashtime startframe endframe starttime endtime')
+
+def label_func_1(key, size, info):
+    if key == size-1:
+        if info.crash:
+            return 1.0
+    return 0.0
+
+'''
+                 videofile=None, 
+                 videoarray=None,
+                 labels=None,
+                 labelinfo=None, # named tuple or other accessible object
+                 label_func=lambda key, size, labelinfo : 0, #?
+                 frames_per_datapoint=1, 
+                 overlap_datapoints=True, #only relevant if more than 1 frame per datapoint
+                 frame_subtraction=False,
+                 return_transitions=False,
+                 frame_transform=lambda x : x, #Transformation to apply per-frame
+                 playback_info = {'fps':25},
+                 sample_every=1, #Rate to keep frames
+                 start_frame=0,
+                 end_frame=-1,
+                 TERMINAL_LABEL=-2,
+                 verbose=False
+
+'''
+
+
+class FileTracker:
+    def __init__(self):
+        pass
+    def file_list(self):
+        pass
+    def basenames(self):
+        pass
+    def file_info(self):
+        pass
+
+class BeamNG_FileTracker(FileTracker):
+    def __init__(self, datapath, basename_list=None, manifest='manifest.txt', info_file='times.txt'):
+        self.datapath = datapath
+        self.basename_list = basename_list
+        self.manifest = os.path.join(datapath, manifest)
+        self.info_file = os.path.join(datapath, info_file)
+
+        if self.basename_list is None:
+            print("Loading basenames from manifest is unimplemented")
+            pass # Do something with the manifest
+        
+        self.file_id_list = [os.path.splitext(fname)[0] for fname in basename_list]
+
+        self.fullpaths = [os.path.abspath(os.path.join(self.datapath,fname)) for fname in self.basename_list]
+        self._load_info_file()
+
+
+    def _load_info_file(self):
+        info = {}
+        with open(self.info_file, 'r') as fobj:
+            pass
+            # Need to map file ids to full paths and nametuples
+
+    # Return list of fullpath filenames
+    def file_list(self):
+        return self.fullpaths
+
+    def basenames(self):
+        return self.basename_list
+
+    def file_ids(self):
+        return self.file_id_list
+
+    # Return dict of file names associated with named tuples, based on manifest
+    def file_info(self):
+        return self.info
+
+
+
+
+class VideoDataset(Dataset):
     '''
     Vidfiles is a list of full video file strings
     videoinfo is a dict associating file basenames (no extension) with named tuples of video info.
     vid_filter takes video objects and processes them based on videoinfo
     '''
-    def __init__(self, vidfiles, videoinfo, vid_filter, frames_per_datapoint=1, frame_subtraction=False,
-                 return_transitions=True):
-        pass
-    
-    @staticmethod
-    def _apply_filter(vidfile, vidinfo, vid_filter):
-        pass
+    def __init__(self, 
+                vidfiles, # List of full video paths
+                videoinfo, # Dict associating files with named tuples of labels
+                frame_transform=frame_transform_1, 
+                label_func=label_func_1, 
+                frames_per_datapoint=1, 
+                frame_subtraction=False,
+                return_transitions=True,
+                sample_every=1,
+                TERMINAL_LABEL=-2,
+                verbose=False,
+                overlap_datapoints=True,
+                ):
+        all_video_arrays = []
+        for vidfile in vidfiles:
+            print("Loading", vidfile)
+            labelinfo = videoinfo[vidfile]
+            all_video_arrays.append(VideoArray(videofile=vidfile, 
+                                       labelinfo=labelinfo,
+                                       label_func=label_func, 
+                                       frames_per_datapoint=frames_per_datapoint,
+                                       overlap_datapoints=overlap_datapoints, 
+                                       frame_subtraction=frame_subtraction,
+                                       return_transitions=return_transitions,
+                                       frame_transform=frame_transform,
+                                       sample_every=sample_every,
+                                       start_frame=labelinfo.startframe, #named tuple must include start and end frames
+                                       end_frame=labelinfo.endframe, #To do: add support for start time and end time for easy truncation
+                                       TERMINAL_LABEL=TERMINAL_LABEL,
+                                       verbose=verbose))
+
+        self.data = Zipindexables(all_video_arrays)
+
     
     def __len__(self):
-        pass
+        return len(self.data)
     
-    def __getitem(self, i):
-        pass
+    def __getitem__(self, i):
+        return self.data[i]
 
-    @property
     def num_videos(self):
-        pass
+        return self.data.num_indexables()
     
     def get_video(self,i):
-        pass
+        return self.data.get_indexable(i)
     
     
