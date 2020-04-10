@@ -745,6 +745,18 @@ class VideoDataset(Dataset):
 
         self.data = Zipindexables(all_video_arrays)
 
+        self.post_process_labels = lambda y : torch.Tensor(y)
+        if return_transitions:
+            if frames_per_datapoint>1:
+                self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
+            else:
+                self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+        else:
+            if frames_per_datapoint>1:
+                self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+            else:
+                self.post_process_array = lambda x : torch.Tensor(x).permute(2,0,1)
+
     
     def __len__(self):
         return len(self.data)
@@ -755,7 +767,7 @@ class VideoDataset(Dataset):
         if i < 0 or i > self.__len__():
             raise KeyError('VideoDataset key out of range')
         x, y = self.data[i]
-        return torch.Tensor(x).permute(0,3,1,2), torch.Tensor(y)
+        return self.post_process_array(x), self.post_process_labels(y)
 
     def num_videos(self):
         return self.data.num_indexables()
