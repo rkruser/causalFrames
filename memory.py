@@ -46,13 +46,13 @@ class Zipindices:
 class Zipindexables:
     # indexables is an iterable of objects with len and getitem defined
     def __init__(self, indexables, slice_is_range=True):
-        self.items = indexables
+        self.indexables = indexables
         self.slice_is_range = slice_is_range
         self._buildindex()
         
     def _buildindex(self):
         llist = []
-        for l in self.items:
+        for l in self.indexables:
             llist.append(len(l))
         self.zipindex = Zipindices(llist)       
         
@@ -94,13 +94,13 @@ class Zipindexables:
             raise StopIteration
             
     def get_indexable(self, key):
-        return self.items[key]
+        return self.indexables[key]
     
     def num_indexables(self):
-        return len(self.items)
+        return len(self.indexables)
     
     def __str__(self):
-        return self.__repr__()+', contents = '+str(self.items)
+        return self.__repr__()+', contents = '+str(self.indexables)
         
     def __repr__(self):
         return 'Zipindexables object, indexables {0}, items {1}'.format(
@@ -108,7 +108,7 @@ class Zipindexables:
             
     def _access(self, key):
         place, ind = self.zipindex[key]
-        return self.items[place][ind]
+        return self.indexables[place][ind]
         
     # Not maximally efficient, but whatever
     def _slice(self, key):
@@ -141,7 +141,7 @@ class Zipindexables:
         new_items = []
         for j in place_list:
             sl = place_inds[j]
-            new_items.append(self.items[j][sl[0]:sl[1]+step:step])
+            new_items.append(self.indexables[j][sl[0]:sl[1]+step:step])
                              
         return Zipindexables(new_items)
             
@@ -257,7 +257,7 @@ class VideoFile:
     def play(self, scale=0.25, playback_speed=1.0, window_name=None):
         if window_name is None:
             window_name = self.filename
-        play_rgb(self, frame_duration=self.frame_duration, scale=scale, playback_speed=playback_speed,
+        play_video(self, frame_duration=self.frame_duration, scale=scale, playback_speed=playback_speed,
                  window_name=window_name)
             
     def _cleanup(self):
@@ -274,7 +274,8 @@ class VideoFile:
         
 
         
-def play_rgb(frames, frame_duration=40, fps=None, scale=1.0, playback_speed=1.0, window_name='video'):
+def play_video(frames, frame_duration=40, fps=None, scale=1.0, playback_speed=1.0, window_name='video',
+             playback_transform = lambda f: cv2.cvtColor(f, cv2.COLOR_RGB2BGR) ):
     print("Press q to stop playback")
 
     playback_multiplier = 1.0/playback_speed
@@ -288,8 +289,9 @@ def play_rgb(frames, frame_duration=40, fps=None, scale=1.0, playback_speed=1.0,
     continue_playing = True
     while continue_playing:
         for frame in frames:
+            frame = playback_transform(frame)
             frame = cv2.resize(frame, (int(np.size(frame,1)*scale), int(np.size(frame,0)*scale)))
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) #undo RGB for playing
+            #frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR) #undo RGB for playing
             cv2.imshow(window_name, frame)
             if cv2.waitKey(frame_duration_ms) & 0xFF == ord('q'):
                 continue_playing = False
@@ -586,7 +588,7 @@ class VideoArray:
         return np.stack([cur, target]), np.stack([cur_label, target_label])
     
     def play(self):
-        play_rgb(self.array, **self.playback_info)
+        play_video(self.array, **self.playback_info)
     
     
 
@@ -611,26 +613,6 @@ def label_func_1(key, size, info):
         if info.crash:
             return 1.0
     return 0.0
-
-'''
-                 videofile=None, 
-                 videoarray=None,
-                 labels=None,
-                 labelinfo=None, # named tuple or other accessible object
-                 label_func=lambda key, size, labelinfo : 0, #?
-                 frames_per_datapoint=1, 
-                 overlap_datapoints=True, #only relevant if more than 1 frame per datapoint
-                 frame_subtraction=False,
-                 return_transitions=False,
-                 frame_transform=lambda x : x, #Transformation to apply per-frame
-                 playback_info = {'fps':25},
-                 sample_every=1, #Rate to keep frames
-                 start_time=0,
-                 end_time=-1,
-                 TERMINAL_LABEL=-2,
-                 verbose=False
-
-'''
 
 
 class FileTracker:
@@ -787,7 +769,7 @@ class VideoDataset(Dataset):
     
 #    Need to think more about this one. (Careful of colorspaces, array reps)
 #    def play_all(self):
-#        play_rgb(self.data)
+#        play_video(self.data)
 
 # Next: a quick RGB / Gray / tensor transform
 # Then: Quick training of a large resnet
