@@ -19,7 +19,7 @@ videoDataset = VideoDataset(vidfiles=ftracker.file_list(),
 print(videoDataset)
 print(len(videoDataset))
 print(videoDataset.num_videos())
-print(videoDataset[-1][0].shape)
+print(videoDataset[-1][0].size())
 print(videoDataset[-1][1])
 for i in range(videoDataset.num_videos()):
     vid = videoDataset.get_video(i)

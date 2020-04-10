@@ -209,7 +209,10 @@ class VideoFile:
     
     # This getitem is slow and is not recommended for use in a performance loop
     # Instead, use the iterator
+    # Slicing is implemented, but not numpy array indexing (not really necessary though)
     def __getitem__(self, n):
+        if isinstance(n,slice):
+            return self._slice(n)
         if n < 0:
             n = self.__len__()+n
         if n < 0 or n >= self.__len__():
@@ -218,6 +221,22 @@ class VideoFile:
         if not ret:
             raise KeyError('Could not return frame {}'.format(n))
         return frame
+
+    def _slice(self, n):
+        start = n.start
+        stop = n.stop
+        step = n.step
+        if start is None:
+            start = 0
+        if stop is None:
+            stop = self.__len__()
+        if step is None:
+            step = 1
+
+        fms = []
+        for i in range(start, stop, step):
+            fms.append(self.__getitem__(i))
+        return np.array(fms)
     
     def _nthframe(self, n):
         self._setframe(n)
@@ -310,6 +329,9 @@ def play_video(frames, frame_duration=40, fps=None, scale=1.0, playback_speed=1.
 # Or possibly just an object that can be indexed like a numpy array
 # Possibly just merge this with vidLoader instead of separating them
 # Have a base class
+
+# If we want to save memory, possibly use the VideoFile object as the self.array
+#  rather than loading the whole video into memory (not sure what cv2 does though)
 class VideoArray:
     '''
     videofile is a string with a path to the file (must be absolute)
@@ -398,11 +420,13 @@ class VideoArray:
                 if len(all_frames)>0:
                     self.array = np.stack(all_frames)
                 else:
-                    dummy = frame_transform(np.zeros([vid.height, vid.width, 3]).astype('uint8')) # dtype???
-                    dims = [0]+list(dummy.shape)
-                    self.array = np.zeros(dims).astype(dummy.dtype)
+                    # ****** !!!! Below should work but gives "float object cannot be interpreted as integer"
+                    #dummy = frame_transform(np.zeros([vid.height, vid.width, 3]).astype('uint8')) # dtype???
+                    #dims = [0]+list(dummy.shape)
+                    #self.array = np.zeros(dims).astype(dummy.dtype)
+
                     #self.array = np.stack([frame_transform(np.zeros([vid.height, vid.width, 3]))])
-                    #self.array = np.zeros([0,224,224,3]) # Change size later
+                    self.array = np.zeros([0,224,224,3]) # Change size later
 
                 self.playback_info.update({'frame_duration':vid.frame_duration,
                                             'fps':vid.framerate,
@@ -774,6 +798,10 @@ class VideoDataset(Dataset):
     
     def get_video(self,i):
         return self.data.get_indexable(i)
+
+    def access_video(self, i, j):
+        x, y = self.get_video(i)[j]
+        return self.post_process_array(x), self.post_process_labels(y)
     
     def play_video(self, i):
         vid = self.get_video(i)
