@@ -14,10 +14,11 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from collections import namedtuple
+import torch
 from torch.utils.data import Dataset
 import os
 
-T = 14
+#T = 14
 
 class Zipindices:
     # length_list : a list of integers specifying lengths of other objects
@@ -392,7 +393,15 @@ class VideoArray:
                     count += 1
 
 
-                self.array = np.stack(all_frames)
+                if len(all_frames)>0:
+                    self.array = np.stack(all_frames)
+                else:
+                    dummy = frame_transform(np.zeros([vid.height, vid.width, 3]).astype('uint8')) # dtype???
+                    dims = [0]+list(dummy.shape)
+                    self.array = np.zeros(dims).astype(dummy.dtype)
+                    #self.array = np.stack([frame_transform(np.zeros([vid.height, vid.width, 3]))])
+                    #self.array = np.zeros([0,224,224,3]) # Change size later
+
                 self.playback_info.update({'frame_duration':vid.frame_duration,
                                             'fps':vid.framerate,
                                             'window_name': vid.filename})
@@ -446,7 +455,10 @@ class VideoArray:
         all_labels = []
         for key in range(self.__len__()):
             all_labels.append(self.label_func(key,self.__len__(),self.labelinfo)) #depends on size too, maybe on other parameters
-        self.labels = np.stack(all_labels)
+        if len(all_labels)>0:
+            self.labels = np.stack(all_labels)
+        else:
+            self.labels=np.array([]) #improve later?
     
     def _compute_length(self):
 #        self.length = VideoArray.compute_length(len(self.array), self.overlap_datapoints, self.frames_per_datapoint)
@@ -582,9 +594,15 @@ class VideoArray:
 ######## Stuff about loading datasets below ##############
 
 def frame_transform_1(frame):
-    frame = cv2.resize(frame, (256,256))
+    frame = cv2.resize(frame, (224,224))
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     return frame
+
+def frame_transform_2(frame):
+    frame = cv2.resize(frame, (224,224))
+    #frame = np.transpose(frame, (0,3,1,2))
+    return frame
+
 
 InfoType1 = namedtuple('InfoType1', 'crash crashtime startframe endframe starttime endtime')
 
@@ -699,8 +717,12 @@ def random_proportion_true(size, proportion=0.5):
     arr[inds] = True
     return arr
 
-datapath = '/mnt/linuxshared/phd-research/data/beamng_vids/all_vids'
-basename_list = [ 'v1_1.mp4', 'v1_2.mp4', 'v1_3.mp4', 'v1_4.mp4' ]
+#datapath = '/mnt/linuxshared/phd-research/data/beamng_vids/all_vids'
+#basename_list = [ 'v1_1.mp4', 'v1_2.mp4', 'v1_3.mp4', 'v1_4.mp4' ]
+
+
+# VideoArray can't handle empty arrays yet, but it's fine for now
+
 
 class VideoDataset(Dataset):
     '''
@@ -750,7 +772,8 @@ class VideoDataset(Dataset):
             i = i+self.__len__()
         if i < 0 or i > self.__len__():
             raise KeyError('VideoDataset key out of range')
-        return self.data[i]
+        x, y = self.data[i]
+        return torch.Tensor(x).permute(0,3,1,2), torch.Tensor(y)
 
     def num_videos(self):
         return self.data.num_indexables()
