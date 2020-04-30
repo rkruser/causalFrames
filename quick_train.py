@@ -22,6 +22,7 @@ parser.add_argument('--eval', action='store_true')
 parser.add_argument('--train_data', action='store_true', help='Use full training data')
 parser.add_argument('--partial_data', action='store_true', help='Use one video for an example')
 parser.add_argument('--test_data', action='store_true', help='Use full test data')
+parser.add_argument('--explicit_data', type=str, default=None, help='Load an explicit video')
 
 parser.add_argument('--device', type=str, default='cuda:0', help='Device to run model on')
 parser.add_argument('--loadname', type=str, default=None, help='Name of model to load')
@@ -53,6 +54,9 @@ elif opt.partial_data:
     opt.no_crash_truncate=True
 elif opt.test_data:
     vid_list = testvids
+    opt.no_crash_truncate=True
+elif opt.explicit_data is not None:
+    vid_list = [opt.explicit_data]
     opt.no_crash_truncate=True
 else:
     print("One of opt.train_data, opt.partial_data, opt.test_data must be set")
