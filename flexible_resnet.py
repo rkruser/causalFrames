@@ -211,3 +211,6 @@ class ResNet(nn.Module):
 # **kwargs)
 def resnet18_flexible(**kwargs):
     return ResNet(BasicBlock, [2,2,2,2], **kwargs)
+
+def resnet50_flexible(**kwargs):
+    return ResNet(BasicBlock, [3,4,6,3], **kwargs)

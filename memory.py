@@ -430,7 +430,7 @@ class VideoArray:
 
                 self.playback_info.update({'frame_duration':vid.frame_duration,
                                             'fps':vid.framerate,
-                                            'window_name': vid.filename})
+                                            'window_name': vid.filename}) #Why is this the same for all videos?
             
         else:
             raise ValueError('VideoArray constructor received only None objects')
@@ -494,7 +494,10 @@ class VideoArray:
         else:
             l = l // self.frames_per_datapoint
         
-        self.length = l
+        if l >= 0:
+            self.length = l
+        else:
+            self.length = 0
         
     def _set_accessor_func(self):
         if self.frames_per_datapoint > 1:
@@ -630,13 +633,20 @@ def frame_transform_2(frame):
     return frame
 
 
-InfoType1 = namedtuple('InfoType1', 'crash crashtime startframe endframe starttime endtime')
+InfoType1 = namedtuple('InfoType1', 'name crash crashtime startframe endframe starttime endtime')
 
 def label_func_1(key, size, info):
     if key == size-1:
         if info.crash:
             return 1.0
     return 0.0
+
+def label_func_2(key, size, info):
+    if not info.crash:
+        return 0.0
+    index = size-1-key
+    return -0.858**index #Chosen so that 5 seconds back, sampling every 5th frame, has near zero reward
+
 
 
 class FileTracker:
@@ -693,7 +703,8 @@ class BeamNG_FileTracker(FileTracker):
                         endtime=-1
                         crash=True
 
-                    self.info[self.id_to_fullpath[fid]] = InfoType1(crash=crash,
+                    self.info[self.id_to_fullpath[fid]] = InfoType1(name=fid,
+                                                          crash=crash,
                                                           crashtime=crashtime,
                                                           starttime=starttime,
                                                           endtime=endtime,
@@ -748,6 +759,7 @@ class VideoDataset(Dataset):
                 TERMINAL_LABEL=-2,
                 verbose=False,
                 overlap_datapoints=True,
+                is_color=True
                 ):
         all_video_arrays = []
         for vidfile in vidfiles:
@@ -770,16 +782,19 @@ class VideoDataset(Dataset):
         self.data = Zipindexables(all_video_arrays)
 
         self.post_process_labels = lambda y : torch.Tensor(y)
-        if return_transitions:
-            if frames_per_datapoint>1:
-                self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
+        if is_color:
+            if return_transitions:
+                if frames_per_datapoint>1:
+                    self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
+                else:
+                    self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
             else:
-                self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+                if frames_per_datapoint>1:
+                    self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+                else:
+                    self.post_process_array = lambda x : torch.Tensor(x).permute(2,0,1)
         else:
-            if frames_per_datapoint>1:
-                self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
-            else:
-                self.post_process_array = lambda x : torch.Tensor(x).permute(2,0,1)
+            self.post_process_array = lambda x : torch.Tensor(x)
 
     
     def __len__(self):
