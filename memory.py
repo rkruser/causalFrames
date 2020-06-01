@@ -648,6 +648,11 @@ def label_func_2(key, size, info):
     return -0.858**index #Chosen so that 5 seconds back, sampling every 5th frame, has near zero reward
 
 
+def label_func_prediction_only(key, size, info):
+    if info.crash:
+        return 1.0
+    return 0.0
+
 
 class FileTracker:
     def __init__(self):
@@ -759,7 +764,8 @@ class VideoDataset(Dataset):
                 TERMINAL_LABEL=-2,
                 verbose=False,
                 overlap_datapoints=True,
-                is_color=True
+                is_color=True,
+                label_postprocess=True
                 ):
         all_video_arrays = []
         for vidfile in vidfiles:
@@ -781,7 +787,11 @@ class VideoDataset(Dataset):
 
         self.data = Zipindexables(all_video_arrays)
 
-        self.post_process_labels = lambda y : torch.Tensor(y)
+        if label_postprocess:
+            self.post_process_labels = lambda y : torch.Tensor(y)
+        else:
+            self.post_process_labels = lambda y : y
+
         if is_color:
             if return_transitions:
                 if frames_per_datapoint>1:
