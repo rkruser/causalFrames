@@ -764,8 +764,9 @@ class VideoDataset(Dataset):
                 TERMINAL_LABEL=-2,
                 verbose=False,
                 overlap_datapoints=True,
-                is_color=True,
-                label_postprocess=True
+                is_color=False,
+                label_postprocess=True,
+                batch_access=False
                 ):
         all_video_arrays = []
         for vidfile in vidfiles:
@@ -792,30 +793,49 @@ class VideoDataset(Dataset):
         else:
             self.post_process_labels = lambda y : y
 
-        if is_color:
-            if return_transitions:
-                if frames_per_datapoint>1:
-                    self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
+        if batch_access: #Ugh, I hate all these if statements
+            if is_color:
+                if return_transitions:
+                    if frames_per_datapoint>1:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,2,5,3,4)
+                    else:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
                 else:
-                    self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+                    if frames_per_datapoint>1:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
+                    else:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
             else:
-                if frames_per_datapoint>1:
-                    self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
-                else:
-                    self.post_process_array = lambda x : torch.Tensor(x).permute(2,0,1)
+                self.post_process_array = lambda x : torch.Tensor(x)
         else:
-            self.post_process_array = lambda x : torch.Tensor(x)
+            if is_color:
+                if return_transitions:
+                    if frames_per_datapoint>1:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,1,4,2,3)
+                    else:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+                else:
+                    if frames_per_datapoint>1:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(0,3,1,2)
+                    else:
+                        self.post_process_array = lambda x : torch.Tensor(x).permute(2,0,1)
+            else:
+                self.post_process_array = lambda x : torch.Tensor(x)
 
     
     def __len__(self):
         return len(self.data)
     
     def __getitem__(self, i):
-        if i < 0:
-            i = i+self.__len__()
-        if i < 0 or i > self.__len__():
-            raise KeyError('VideoDataset key out of range')
-        x, y = self.data[i]
+        if isinstance(i, np.ndarray): #Theoretically this allows indexing via numpy array
+            xypairs = self.data[i]
+            x, y = zip(*xypairs)
+        else:
+            if i < 0:
+                i = i+self.__len__()
+            if i < 0 or i > self.__len__():
+                raise KeyError('VideoDataset key out of range')
+            x, y = self.data[i]
         return self.post_process_array(x), self.post_process_labels(y)
 
     def num_videos(self):

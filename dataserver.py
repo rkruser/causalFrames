@@ -2,11 +2,13 @@ import argparse
 import socket
 from struct import pack, unpack
 import pickle
+import numpy as np
+
 
 
 
 class Query:
-    def __init__(self, function, args, kwargs):
+    def __init__(self, function='__getitem__', args=[], kwargs={}):
         self.function = function
         self.args = args
         self.kwargs = kwargs
@@ -21,14 +23,14 @@ class Query:
 
 
 class Answer:
-    def __init__(self, returnval, is_error=False, error_msg=None):
+    def __init__(self, returnval, is_error=False, error_object=None):
         self.returnval = returnval
         self.is_error = is_error
-        self.error_msg = error_msg
+        self.error_object = error_object
 
     def __repr__(self):
         rep = "answer_object\nreturnval: " + str(self.returnval) + "\nis_error: " + str(self.is_error) + \
-                "\nerror_msg: " + str(self.error_msg) + "\n"
+                "\nerror_object: " + str(self.error_object) + "\n"
         return rep
 
     def __str__(self):
@@ -50,6 +52,15 @@ class DataServer:
         self.socket.bind((ipaddr, port))
         self.socket.listen(10) #10 = backlog allowed
         print("Data server listening on", ipaddr, port)
+
+
+    def runQuery(self, query):
+        func = getattr(self.dataset, query.function)
+        try:
+            result = func(*query.args, **query.kwargs)
+            return Answer(result)
+        except Exception as e:
+            return Answer(None, is_error=True, error_object=e)
 
 
     # Run the server
@@ -75,8 +86,9 @@ class DataServer:
                     query_received = pickle.loads(data)
                     print("Received", query_received)
 
+                    answer = self.runQuery(query_received)
 
-                    answer_to_send = pickle.dumps(Answer("jarblejarble"))
+                    answer_to_send = pickle.dumps(answer)
                     answer_length = pack('>Q', len(answer_to_send))
                     connection.sendall(answer_length)
                     connection.sendall(answer_to_send)
@@ -133,6 +145,8 @@ class DataClient:
 
         reply = pickle.loads(reply_bytes)
         print("Server replied", reply)
+        print(type(reply.returnval[0]))
+        print(reply.returnval[0].size())
 
 
 
@@ -151,13 +165,22 @@ if __name__ == '__main__':
 
     
     if opt.servertest:
-        server = DataServer(None)
+        from video_loader import datapath, trainvids, testvids
+        from memory import VideoDataset, BeamNG_FileTracker
+
+        ftracker = BeamNG_FileTracker(datapath, basename_list=[trainvids[0], trainvids[1]], crash_truncate_list=[False, False])
+        dataset = VideoDataset(vidfiles=ftracker.file_list(), videoinfo=ftracker.file_info(), batch_access=True,
+                    frames_per_datapoint=10)
+
+        server = DataServer(dataset)
         server.listen(opt.ip, opt.port)
         server.run()
     elif opt.clienttest:
         client = DataClient()
         client.connect(opt.ip, opt.port)
-        query = Query("funcmlar:"+opt.message, ["arg1mlar", "arg2mlar"], {"kwarg1":"mlar", "kwarg2":"mlar"})
+        #query = Query("funcmlar:"+opt.message, ["arg1mlar", "arg2mlar"], {"kwarg1":"mlar", "kwarg2":"mlar"})
+#        query = Query(args=[np.array([0,3,5,7,9,11])])
+        query = Query(args=[np.array([0,3,5])])
         client.send_query(query)
     # Start the data server based on the command line arguments
     # Load all the data
